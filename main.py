@@ -142,7 +142,6 @@ def download_assets(dataset_id: str, output_dir: Path, patterns: list[str]) -> P
             local_dir_use_symlinks=False,
             cache_dir=str(cache_dir),
             max_workers = 32,
-            dry_run=True,
         )
     # )
 
