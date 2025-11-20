@@ -5,4 +5,4 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 uv sync
 
 # Run the script
-uv run python main.py
+# uv run python main.py

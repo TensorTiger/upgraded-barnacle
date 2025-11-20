@@ -18,7 +18,6 @@ from typing import Iterable
 
 from huggingface_hub import HfApi, snapshot_download
 
-os.environ["HF_TOKEN"] = "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"
 PARQUET_SUFFIXES = {".parquet"}
 TAR_SUFFIXES = {".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tar.xz"}
 
