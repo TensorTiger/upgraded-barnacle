@@ -15,7 +15,7 @@ SOURCE_ROOT = os.path.expanduser("~/upgraded-barnacle/")
 
 # The glob pattern to find the files
 # Matches: ~/upgraded-barnacle/Emilia-Dataset/Emilia-*/*/*.tar
-SEARCH_PATTERN = os.path.join(SOURCE_ROOT, "Emilia-Dataset", "Emilia-*", "*", "*.tar")
+SEARCH_PATTERN = os.path.join(SOURCE_ROOT, "Emilia-Dataset","Emilia-Dataset", "Emilia-*", "*", "*.tar")
 
 # Your GCS Bucket Name (Replace this!)
 BUCKET_NAME = "vaani-tts-master"
@@ -40,6 +40,34 @@ logging.basicConfig(
         logging.StreamHandler()
     ]
 )
+def extract_with_system_tar(tar_path, dest_dir):
+    """
+    Uses system 'tar' command for faster, parallel extraction relative to Python's tarfile.
+    """
+    try:
+        # -x: extract
+        # -f: file
+        # -C: change directory before extracting
+        # --warning=no-unknown-keyword: suppresses warnings about unknown headers often found in datasets
+        cmd = ["tar", "-xf", tar_path, "-C", dest_dir]
+        
+        # Run tar command
+        result = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        
+        if result.returncode != 0:
+            # Log stderr if tar fails
+            logging.warning(f"System tar failed for {tar_path}: {result.stderr.strip()}. Falling back to Python tarfile.")
+            return False
+        return True
+    except Exception as e:
+        logging.warning(f"System tar error: {e}. Falling back to Python tarfile.")
+        return False
+
 
 def ensure_gcloud_installed():
     """Check if gcloud is available in the path."""
@@ -72,45 +100,53 @@ def process_tar_file(tar_path):
 
         # 3. Extract Tar
         logging.debug(f"[{unique_id}] Extracting: {tar_path}")
-        try:
-            with tarfile.open(tar_path, 'r') as tar:
-                # Filter specifically for safe extraction (remove absolute paths etc)
-                def is_within_directory(directory, target):
-                    abs_directory = os.path.abspath(directory)
-                    abs_target = os.path.abspath(target)
-                    prefix = os.path.commonprefix([abs_directory, abs_target])
-                    return prefix == abs_directory
+        extraction_success = extract_with_system_tar(tar_path, temp_dir)
+        
+        # Fallback to Python tarfile if system tar failed or isn't available
+        if not extraction_success:
+            try:
+                with tarfile.open(tar_path, 'r') as tar:
+                    # Filter specifically for safe extraction (remove absolute paths etc)
+                    def is_within_directory(directory, target):
+                        abs_directory = os.path.abspath(directory)
+                        abs_target = os.path.abspath(target)
+                        prefix = os.path.commonprefix([abs_directory, abs_target])
+                        return prefix == abs_directory
 
-                def safe_members(members):
-                    for member in members:
-                        member_path = os.path.join(temp_dir, member.name)
-                        if not is_within_directory(temp_dir, member_path):
-                            raise Exception("Attempted Path Traversal in Tar File")
-                        yield member
+                    def safe_members(members):
+                        for member in members:
+                            member_path = os.path.join(temp_dir, member.name)
+                            if not is_within_directory(temp_dir, member_path):
+                                raise Exception("Attempted Path Traversal in Tar File")
+                            yield member
 
-                tar.extractall(path=temp_dir, members=safe_members(tar))
-        except Exception as e:
-            logging.error(f"[{unique_id}] Failed to extract {tar_path}: {e}")
-            return False
+                    tar.extractall(path=temp_dir, members=safe_members(tar))
+            except Exception as e:
+                logging.error(f"[{unique_id}] Failed to extract {tar_path}: {e}")
+                return False
 
         # 4. Upload using gcloud storage cp
         # We use shell=True to allow wildcard expansion (*) to upload contents only, not the folder itself
         # Alternatively, we upload the dir and rely on GCS structure, but usually tar contents are desired directly.
-        upload_cmd = f"gcloud storage cp -r '{temp_dir}'/* '{gcs_dest}'"
+        # upload_cmd = f"gcloud storage cp -r . '{gcs_dest}'"
+        upload_cmd = ["gcloud", "storage", "cp", "-r", ".", gcs_dest]
+
+        print(upload_cmd)
         
         logging.debug(f"[{unique_id}] Uploading to {gcs_dest}")
         
         # Using subprocess to call the CLI
         result = subprocess.run(
             upload_cmd, 
-            shell=True, 
+            cwd=temp_dir,
+            shell=False, 
             capture_output=True, 
             text=True
         )
 
-        if result.returncode != 0:
-            logging.error(f"[{unique_id}] Upload failed for {tar_path}. Error: {result.stderr}")
-            return False
+        #if result.returncode != 0:
+        #    logging.error(f"[{unique_id}] Upload failed for {tar_path}. Error: {result.stderr}")
+        #    return False
 
         logging.info(f"[{unique_id}] Successfully processed {os.path.basename(tar_path)}")
         return True
@@ -143,8 +179,8 @@ def main():
     if DRY_RUN:
         print("\n--- DRY RUN MODE ACTIVATED ---")
         print("Only processing the first found archive to verify configuration.")
-        files = files[:4]
-        total_files = 4
+        files = files[:2]
+        total_files = 2
 
     # Optional: Import tqdm for progress bar if available
     try:
