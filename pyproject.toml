@@ -7,4 +7,5 @@ requires-python = ">=3.12"
 dependencies = [
     "datasets>=4.4.1",
     "huggingface-hub>=1.1.4",
+    "tqdm>=4.67.1",
 ]
